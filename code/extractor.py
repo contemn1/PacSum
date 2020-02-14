@@ -22,7 +22,7 @@ class PacSumExtractor:
         self.lambda1 = lambda1
         self.lambda2 = lambda2
 
-    def extract_summary(self, data_iterator):
+    def extract_summary(self, data_iterator, output_path=None):
 
         summaries = []
         references = []
@@ -41,6 +41,11 @@ class PacSumExtractor:
             references.append([abstract])
 
         result = evaluate_rouge(summaries, references, remove_temp=True, rouge_args=[])
+        if output_path:
+            with open(output_path, mode="w+") as out_file:
+                for sum_list in summaries:
+                    out_file.write("\001".join(sum_list) + "\n")
+
 
     def tune_hparams(self, data_iterator, example_num=1000):
 

@@ -1,21 +1,17 @@
-from collections import Counter
-import numpy as np
 import math
-import torch
-import torch.nn as nn
 import random
-import time
-import io
-import codecs
+from collections import Counter
 
+import numpy as np
+import torch
 
-
-from utils import evaluate_rouge
 from bert_model import BertEdgeScorer, BertConfig
+from utils import evaluate_rouge
+
 
 class PacSumExtractor:
 
-    def __init__(self, extract_num = 3, beta = 3, lambda1 = -0.2, lambda2 = -0.2):
+    def __init__(self, extract_num=3, beta=3, lambda1=-0.2, lambda2=-0.2):
 
         self.extract_num = extract_num
         self.beta = beta
@@ -46,9 +42,7 @@ class PacSumExtractor:
                 for sum_list in summaries:
                     out_file.write("\001".join(sum_list) + "\n")
 
-
     def tune_hparams(self, data_iterator, example_num=1000):
-
 
         summaries, references = [], []
         k = 0
@@ -68,15 +62,17 @@ class PacSumExtractor:
         best_rouge = 0
         best_hparam = None
         for i in range(len(summaries[0])):
-            print("threshold :  "+str(hparam_list[i])+'\n')
-            #print("non-lead ratio : "+str(ratios[i])+'\n')
-            result = evaluate_rouge([summaries[k][i] for k in range(len(summaries))], references, remove_temp=True, rouge_args=[])
+            print("threshold :  " + str(hparam_list[i]) + '\n')
+            # print("non-lead ratio : "+str(ratios[i])+'\n')
+            result = evaluate_rouge([summaries[k][i] for k in range(len(summaries))], references, remove_temp=True,
+                                    rouge_args=[])
 
             if result['rouge_1_f_score'] > best_rouge:
                 best_rouge = result['rouge_1_f_score']
                 best_hparam = hparam_list[i]
 
-        print("The best hyper-parameter :  beta %.4f , lambda1 %.4f, lambda2 %.4f " % (best_hparam[0], best_hparam[1], best_hparam[2]))
+        print("The best hyper-parameter :  beta %.4f , lambda1 %.4f, lambda2 %.4f " % (
+        best_hparam[0], best_hparam[1], best_hparam[2]))
         print("The best rouge_1_f_score :  %.4f " % best_rouge)
 
         self.beta = best_hparam[0]
@@ -86,7 +82,6 @@ class PacSumExtractor:
     def _calculate_similarity_matrix(self, *inputs):
 
         raise NotImplementedError
-
 
     def _select_tops(self, edge_scores, beta, lambda1, lambda2):
 
@@ -99,13 +94,12 @@ class PacSumExtractor:
 
         paired_scores = []
         for node in range(len(forward_scores)):
-            paired_scores.append([node,  lambda1 * forward_scores[node] + lambda2 * backward_scores[node]])
+            paired_scores.append([node, lambda1 * forward_scores[node] + lambda2 * backward_scores[node]])
 
-        #shuffle to avoid any possible bias
+        # shuffle to avoid any possible bias
         random.shuffle(paired_scores)
-        paired_scores.sort(key = lambda x: x[1], reverse = True)
+        paired_scores.sort(key=lambda x: x[1], reverse=True)
         extracted = [item[0] for item in paired_scores[:self.extract_num]]
-
 
         return extracted
 
@@ -115,15 +109,14 @@ class PacSumExtractor:
         backward_scores = [0 for i in range(len(similarity_matrix))]
         edges = []
         for i in range(len(similarity_matrix)):
-            for j in range(i+1, len(similarity_matrix[i])):
+            for j in range(i + 1, len(similarity_matrix[i])):
                 edge_score = similarity_matrix[i][j]
                 if edge_score > edge_threshold:
                     forward_scores[j] += edge_score
                     backward_scores[i] += edge_score
-                    edges.append((i,j,edge_score))
+                    edges.append((i, j, edge_score))
 
         return np.asarray(forward_scores), np.asarray(backward_scores), edges
-
 
     def _tune_extractor(self, edge_scores):
 
@@ -133,7 +126,7 @@ class PacSumExtractor:
         for k in range(num + 1):
             beta = k / num
             for i in range(11):
-                lambda1 = i/10
+                lambda1 = i / 10
                 lambda2 = 1 - lambda1
                 extracted = self._select_tops(edge_scores, beta=beta, lambda1=lambda1, lambda2=lambda2)
 
@@ -145,16 +138,16 @@ class PacSumExtractor:
 
 class PacSumExtractorWithBert(PacSumExtractor):
 
-    def __init__(self, bert_model_file, bert_config_file, extract_num = 3, beta = 3, lambda1 = -0.2, lambda2 = -0.2):
+    def __init__(self, bert_model_file, bert_config_file, extract_num=3, beta=3, lambda1=-0.2, lambda2=-0.2):
 
         super(PacSumExtractorWithBert, self).__init__(extract_num, beta, lambda1, lambda2)
         self.model = self._load_edge_model(bert_model_file, bert_config_file)
 
-    def _calculate_similarity_matrix(self,  x, t, w, x_c, t_c, w_c, pair_indice):
-        #doc: a list of sequences, each sequence is a list of words
+    def _calculate_similarity_matrix(self, x, t, w, x_c, t_c, w_c, pair_indice):
+        # doc: a list of sequences, each sequence is a list of words
 
         def pairdown(scores, pair_indice, length):
-            #1 for self score
+            # 1 for self score
             out_matrix = np.ones((length, length))
             for pair in pair_indice:
                 out_matrix[pair[0][0]][pair[0][1]] = scores[pair[1]]
@@ -163,29 +156,27 @@ class PacSumExtractorWithBert(PacSumExtractor):
             return out_matrix
 
         scores = self._generate_score(x, t, w, x_c, t_c, w_c)
-        doc_len = int(math.sqrt(len(x)*2)) + 1
+        doc_len = int(math.sqrt(len(x) * 2)) + 1
         similarity_matrix = pairdown(scores, pair_indice, doc_len)
 
         return similarity_matrix
 
     def _generate_score(self, x, t, w, x_c, t_c, w_c):
 
-        #score =  log PMI -log k
+        # score =  log PMI -log k
         scores = torch.zeros(len(x)).cuda()
         step = 20
-        for i in range(0,len(x),step):
-
-            batch_x = x[i:i+step]
-            batch_t = t[i:i+step]
-            batch_w = w[i:i+step]
-            batch_x_c = x_c[i:i+step]
-            batch_t_c = t_c[i:i+step]
-            batch_w_c = w_c[i:i+step]
+        for i in range(0, len(x), step):
+            batch_x = x[i:i + step]
+            batch_t = t[i:i + step]
+            batch_w = w[i:i + step]
+            batch_x_c = x_c[i:i + step]
+            batch_t_c = t_c[i:i + step]
+            batch_w_c = w_c[i:i + step]
 
             inputs = tuple(t.to('cuda') for t in (batch_x, batch_t, batch_w, batch_x_c, batch_t_c, batch_w_c))
             batch_scores, batch_pros = self.model(*inputs)
-            scores[i:i+step] = batch_scores.detach()
-
+            scores[i:i + step] = batch_scores.detach()
 
         return scores
 
@@ -204,7 +195,7 @@ class PacSumExtractorWithBert(PacSumExtractor):
 
 class PacSumExtractorWithTfIdf(PacSumExtractor):
 
-    def __init__(self, extract_num = 3, beta = 3, lambda1 = -0.2, lambda2 = -0.2):
+    def __init__(self, extract_num=3, beta=3, lambda1=-0.2, lambda2=-0.2):
 
         super(PacSumExtractorWithTfIdf, self).__init__(extract_num, beta, lambda1, lambda2)
 
@@ -229,7 +220,6 @@ class PacSumExtractorWithTfIdf(PacSumExtractor):
 
         return similarity_matrix
 
-
     def _idf_modified_dot(self, tf_scores, i, j, idf_score):
 
         if i == j:
@@ -244,24 +234,22 @@ class PacSumExtractorWithTfIdf(PacSumExtractor):
             idf = idf_score[word]
             score += tf_i[word] * tf_j[word] * idf ** 2
 
-
         return score
-
 
     def _calculate_idf_scores(self, doc):
 
-       doc_number_total = 0.
-       df = {}
-       for i, sen in enumerate(doc):
-           tf = Counter(sen)
-           for word in tf.keys():
-               if word not in df:
-                   df[word] = 0
-               df[word] += 1
-           doc_number_total += 1
+        doc_number_total = 0.
+        df = {}
+        for i, sen in enumerate(doc):
+            tf = Counter(sen)
+            for word in tf.keys():
+                if word not in df:
+                    df[word] = 0
+                df[word] += 1
+            doc_number_total += 1
 
-       idf_score = {}
-       for word, freq in df.items():
-           idf_score[word] = math.log(doc_number_total - freq + 0.5) - math.log(freq + 0.5)
+        idf_score = {}
+        for word, freq in df.items():
+            idf_score[word] = math.log(doc_number_total - freq + 0.5) - math.log(freq + 0.5)
 
-       return idf_score
+        return idf_score

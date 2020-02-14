@@ -31,7 +31,8 @@ if __name__ == '__main__':
     if args.rep == 'tfidf':
         extractor = PacSumExtractorWithTfIdf(beta=args.beta,
                                              lambda1=args.lambda1,
-                                             lambda2=args.lambda2)
+                                             lambda2=args.lambda2,
+                                             extract_num=args.extract_num)
         # tune
         if args.mode == 'tune':
             tune_dataset = Dataset(args.tune_data_file)
@@ -48,7 +49,8 @@ if __name__ == '__main__':
                                             bert_config_file=args.bert_config_file,
                                             beta=args.beta,
                                             lambda1=args.lambda1,
-                                            lambda2=args.lambda2)
+                                            lambda2=args.lambda2,
+                                            extract_num=args.extract_num)
         # tune
         if args.mode == 'tune':
             tune_dataset = Dataset(args.tune_data_file, vocab_file=args.bert_vocab_file)
